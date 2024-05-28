@@ -14,19 +14,19 @@ Along the way, we’ve had a number of challenges to address:
 
 2) The introduction of parametric mutability, which is important to representing things like a “refitem” whose result is a reference with the same mutability as ‘self’.  We currently support this, but require a weird “define self as Reference type instead of Self type” approach which is inconsistent with all the other argument conventions in Mojo.
 
-3) We need “automatically dereferenced” references for ergonomics, but we also want an explainable model.  The recently proposed “automatic dereference” model follows C++ precedent by building this in as a new form of LValue to RValue conversion, but this makes the language significantly more complicated by breaking an invariant: the type loaded from an LValue (an RValue) has different type than the type stored into it.
+3) We need “automatically dereferenced” references for ergonomics, and require an explainable and predictable model.  The recently proposed “automatic dereference” model follows C++ precedent by building this in as a new form of LValue to RValue conversion, but this makes the language significantly more complicated by breaking an invariant: the type loaded from an LValue (an RValue) has different type than the type stored into it.
 
 4) We have persistent confusion about the word “reference”: Python considers all “PythonObject”s to be “object references”, which is completely different than what the `Reference` type provides.  Furthermore, there are also “reference semantic” types which are more similar to the Python notion and less similar to `Reference`.  It would be awesome to clarify this.
 
-5) We still need to [reconsider which keywords](https://github.com/modularml/mojo/blob/main/proposals/lifetimes-keyword-renaming.md) to use for argument conventions.  The `inout` keyword, for example, is problematic because it works with types that are not movable or copyable.  The callee doesn’t move things in and out, it takes a mutable reference.  The caller does the inout magic when needed, so it seems inappropriate to put this on the callee declaration.
+5) We still need to [reconsider which keywords](https://github.com/modularml/mojo/blob/main/proposals/lifetimes-keyword-renaming.md) to use for argument conventions.  The `inout` keyword, for example, is problematic because it works with types that are not movable or copyable.  The callee doesn’t actually move things in and out, it takes a mutable reference.  It is the caller that does the inout magic when needed, so it seems inappropriate to put this on the callee declaration.
 
-This whitepaper proposes a significantly simpler model for passing around “references” in Mojo.
+We believe that this proposed model is also significantly simpler than the previous approaches.
 
 ## Proposal #1: Introduce a new `ref` argument convention
 
 The existing `inout` and `borrowed` conventions are argument conventions that are syntax sugar for an underlying MLIR type `!lit.ref` (with a bit of additional semantics on top).  These references are always “auto dereferenced” in the body of the function.  Let’s introduce a new `ref` convention that allows specifying an expected lifetime and that is auto-dereferenced in the body like `inout` is. For the moment, we'll use the syntax `ref [<lifetime>]`. Here's a basic example:
 
-```python
+```mojo
 fn take_int_ref(a: Int, ref [_] b: Int) -> Int:
     return a+b  # b, not b[]
 ```
@@ -35,7 +35,7 @@ Alternative syntaxes are proposed later in this document.
 
 Given this feature, we can remove the ability to define `self` as a `Reference` and just use this new argument convention.  Instead of:
 
-```python
+```mojo
 fn __refitem__(self: Reference[Self, _, _], index: Int) -> Reference[
         Self.ElementType, self.is_mutable, self.lifetime
     ]:
@@ -45,7 +45,7 @@ You would now use an argument convention:
 
 ```python
 fn __refitem__(ref [_] self, index: Int) -> Reference[
-        # This is a bit yuck, see below.
+        # This is a bit yuck, but is simplified further below.
         Self.ElementType, __lifetime_of(self).is_mutable, __lifetime_of(self)
     ]:
     
@@ -55,6 +55,20 @@ fn __refitem__[life: Lifetime](ref [life] self, index: Int) -> Reference[
         Self.ElementType, life.is_mutable, life
     ]:
 ```
+
+### Supporting address spaces
+
+`!lit.ref` currently has three parameters: a type, a lifetime, and an address space.  The address space
+is a relatively niche but important feature used for GPUs and other accelerators.
+We specify the address space as follows:
+
+```mojo
+fn foo(...) -> ref [lifetime, addr_space] T: ...
+```
+
+This parameter would be optional, just as it is currently optional for `Reference`.
+
+In the future, the lifetime and address space could potentially be combined into one value.
 
 ### How do we explain this?
 
@@ -72,7 +86,7 @@ This also aligns with the C++ notion of “passing by reference”.
 
 The other feature we need is the ability to _return_ an "automatically dereferenced" reference. For the moment, we'll use the same `ref [<lifetime>]` syntax for this. This feature can replace the use of `Reference` in the previous example:
 
-```python
+```mojo
 fn __refitem__(ref [_] self, index: Int)
     -> ref [__lifetime_of(self)] Self.ElementType:
     
@@ -81,32 +95,32 @@ fn __refitem__(ref [_] self, index: Int)
     -> ref [Lifetime(self)] Self.ElementType:
 ```
 
-Hey now we’re getting somewhere.  As with the `ref` argument convention, the `ref` result convention automatically dereferences itself… but this happens on the caller side.
+This is much more clear.  As with the `ref` argument convention, the `ref` result convention automatically dereferences itself... but this happens on the caller side.
 
 This means that auto-deref behavior happens in exactly one place in the compiler: in the result of function calls whose result convention is a `ref` result convention.  This makes it far less invasive than the previously proposed auto-deref behavior and is much more predictable for users.
 
 Note that this gives the developer control over auto-deref, because both of these are valid:
 
-```python
+```mojo
 fn yes_auto_deref(...) -> ref [lifetime] Int: ...
 fn no_auto_deref(...) -> Reference[Int, lifetime]: ...
 ```
 
 We would expect `ref` to be the default choice. It's the most versatile: if a function call returns a `ref` but you want a `Reference`, you can just wrap the call in the `Reference` constructor. The purpose of `Reference` is to allow references to be _stored_ in data structures. Furthermore, it supports nesting such as `Reference[Reference[Reference[Int], ...], ...], ...]` without implicit promotions interfering.
 
-The `ref` result convention solves the auto-dereference problem, and allows us to remove `__refitem__` in favor of `__getitem__`.  Note that we would not allow the use of `inout` or `borrowed` in a result position. The result requires a lifetime so that the caller knows what it refers to, and how long it is valid for.
+## Proposal #3: Remove `__refitem__`
 
-### Supporting different address spaces
-`!lit.ref` currently has three parameters: a type, a lifetime, and an address space. The `ref` syntax needs to support this as well. We could specify the address space as follows:
-```python
-fn foo(...) -> ref [lifetime, addr_space] T: ...
+Now that general functions can return an auto-dereferenced reference, we can get rid of the `__refitem__` special case and just use `__getitem__`.
+This simplifies the language and improves consistency with Python.  Our example above becomes:
+
+```mojo
+fn __getitem__(ref [_] self, index: Int)
+    -> ref [__lifetime_of(self)] Self.ElementType:
 ```
 
-This parameter would be optional, just as it is currently optional for `Reference`.
+Note: Neither `inout` nor `borrowed` are allowed in a result position. The result requires a lifetime so that the caller knows what it refers to, and how long it is valid for.
 
-In the future, the lifetime and address space could potentially be combined into one value.
-
-## Proposal #3: Rename `Reference` to `Pointer` (or `SafePointer` )
+## Proposal #4: Rename `Reference` to `Pointer` (or `SafePointer` )
 
 As of Mojo 24.3, our status is:
 
@@ -370,3 +384,14 @@ So we have problems with both the words "transfer" and "operator". To resolve th
 > _sigil_: an inscribed symbol considered to have magical power
 
 That's exactly what `^` is. If you inscribe an expression with `^`, its value will be "magically" consumed. That's the hand-wavey definition. To provide a formal definition, you would need to talk about move constructors, copy constructors, temporary variables, etc.
+
+### Reference patterns are still needed
+
+We will need to build out Mojo's support for [patterns](https://docs.python.org/3/reference/compound_stmts.html#grammar-token-python-grammar-patterns) and the [`match`](https://docs.python.org/3/tutorial/controlflow.html#match-statements) statement, which are currently completely missing.  As part of this, we'll need to investigate adding a `ref` pattern.  Such a thing would allow a foreach loop that mutates the elements from within the loop:
+
+```
+  for (ref elt) in mutableList:
+     elt = 42
+```
+
+Mojo needs patterns across the language in general: they should work in `match` statements, `var` declarations, and a few other places.  Adding `ref` patterns would allow having an autodereferenced `var` reference.
