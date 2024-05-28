@@ -43,7 +43,7 @@ fn __refitem__(self: Reference[Self, _, _], index: Int) -> Reference[
 
 You would now use an argument convention:
 
-```python
+```mojo
 fn __refitem__(ref [_] self, index: Int) -> Reference[
         # This is a bit yuck, but is simplified further below.
         Self.ElementType, __lifetime_of(self).is_mutable, __lifetime_of(self)
@@ -146,7 +146,7 @@ We believe that the proposed model would simplify a lot of things, but there are
 
 The proposal above is consistent with Mojo’s current use of argument conventions, but is inconsistent with Rust references.  Notably, it is NOT possible to define a local “ref”, and it isn’t possible to define a “ref to a ref”:
 
-```python
+```mojo
 fn weird_tests[life1: Lifetime, life2: Lifetime](
            ref [life1] arg1: Int,  ## ok
    
@@ -167,7 +167,7 @@ While this is *different* than Rust, we feel this is actually a good thing - it 
 
 One downside of this proposal (compared to the C++-style autoderef proposal) is that it wouldn’t be possible to write a function that returns multiple auto-dereferenced values in a tuple:
 
-```python
+```mojo
 # Simple tuple result type is ok of course:
 fn g1(...) -> (Int, Int): ...
 
@@ -184,7 +184,7 @@ This is unfortunate, and really doesn’t fit with this model, but it isn’t a 
 
 If this were important to solve for, we could consider extending Mojo to natively support multiple return values directly.  The compiler internally already supports this, but it is not exposed to Mojo source code.  One example of something that could be supported with native multiple return values are “unpacking” for non-movable results, e.g.:
 
-```python
+```mojo
 fn do_stuff() -> result: NonMovable:
   var a : NonMovable
   a, result = f()
@@ -213,7 +213,7 @@ Our use of square brackets in the `ref [<lifetime>]` syntax is also worth interr
 ### Syntaxes for the argument convention
 
 Here are some alternative syntaxes that avoid both of the issues mentioned above:
-```
+```mojo
 # We could repurpose Python's `from` keyword:
 fn foo(x from <lifetime>: Int):
 
@@ -231,12 +231,12 @@ That said, it's too early to settle on a keyword for this. If `Lifetime` ends up
 ### Syntaxes for the result convention
 
 We can consider a similar syntax for the result convention. However, results are usually not named, so a naïve translation of the above syntax doesn't look very clean:
-```
+```mojo
 fn foo() -> from <origin>: Int:
 ```
 
 Using the `ref` keyword here would avoid this problem:
-```
+```mojo
 fn foo() -> ref from <origin>: Int:
 ```
 
@@ -249,7 +249,7 @@ A reasonable path forward would be say that some functions return **values**, an
 A variable _holds_ a value. Thus, it should be clear that if a function returns a variable, you can read its value, and if the variable is mutable, you can overwrite its value. These are exactly the affordances provided by the new result convention.
 
 Given all of this, the following syntax might be reasonable:
-```
+```mojo
 fn foo() -> var from <origin>: Int:
 
 # The use of `var` here is independent of the `from` syntax.
@@ -258,7 +258,7 @@ fn foo() -> var [<origin>] Int:
 ```
 
 The expression `foo()` behaves just like a variable does. If it is mutable, you can reassign it, or mutate it:
-```
+```mojo
 foo() = 0
 foo() += 1
 ```
@@ -266,7 +266,7 @@ foo() += 1
 The biggest downside of using the `var` keyword for the new result convention is that as of today, `var` is exclusively used to declare _new_ variables, whereas in the above syntax, `var` is being used to declare that a function returns a reference to an _existing_ variable. That said, it's unlikely that users will misinterpret `-> var from <origin>` as declaring a new variable, given the context in which it appears.
 
 As mentioned, `var` is the only noun that seems suitable. However, we could consider a verb or an adjective:
-```
+```mojo
 fn foo() -> select from <origin>: Int:
 
 fn foo() -> select [<origin>] Int:
@@ -279,24 +279,24 @@ fn foo() -> shared [<origin>] Int:
 Unfortunately, if `->` is read as "returns", then a verb doesn't make grammatical sense. An adjective _might_ make sense, but it's not clear what a good adjective would be. The word `shared` is problematic, because it has connotations concerning synchronization etc.
 
 Finally, using the `from`/`in`/`at` keywords in the result convention leads to an issue with the `:` character. We are using it to specify both the type of the returned variable, and to mark the end of the function signature:
-```
+```mojo
 fn foo() -> var from <origin>: Int:
 ```
 
 This is clunky, and may complicate parsing. We can fix this by adding parentheses:
-```
+```mojo
 fn foo() -> (var from <origin>: Int):
 ```
 
 Alternatively, if (for some reason) the `Lifetime`/`Origin` type ends up being parameterized by the type of the variables that it contains, we could drop the type annotation entirely:
-```
+```mojo
 fn foo() -> var from <origin>:
 
 fn foo() -> var at <origin>:
 ```
 
 Another option would be to revert to the square bracket syntax, since this allows us to omit the first colon:
-```
+```mojo
 fn foo() -> var [<origin>] Int:
 ```
 
@@ -308,7 +308,7 @@ Along with contemplating syntaxes for the *new* conventions, it makes sense to r
 
 Let’s look at a few examples in 24.3 Mojo:
 
-```python
+```mojo
 ## Today in mojo:
 struct MyInt:
    # Note that inout is a lie here, the input is uninitialized.
@@ -354,7 +354,7 @@ These are just suggestions. Various synonyms of these words might also work well
 
 If we repaint the earlier example with the new keywords, we get:
 
-```python
+```mojo
 ## Proposed
 struct MyInt:
    fn __init__(init self, value: Int): ...
@@ -389,7 +389,7 @@ That's exactly what `^` is. If you inscribe an expression with `^`, its value wi
 
 We will need to build out Mojo's support for [patterns](https://docs.python.org/3/reference/compound_stmts.html#grammar-token-python-grammar-patterns) and the [`match`](https://docs.python.org/3/tutorial/controlflow.html#match-statements) statement, which are currently completely missing.  As part of this, we'll need to investigate adding a `ref` pattern.  Such a thing would allow a foreach loop that mutates the elements from within the loop:
 
-```
+```mojo
   for (ref elt) in mutableList:
      elt = 42
 ```
