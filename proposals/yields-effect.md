@@ -469,6 +469,54 @@ that although `read_file(path)` immediately executes the coroutine and return a
 execute concurrently with other work, and that this can be done without
 superfluous memory allocations.
 
+### We need a shorthand for trait methods that _might_ yield
+
+Traits are meant to be highly general, and therefore they should ideally accept
+both yielding and non-yielding implementations. However, we don't want this to
+be syntactically burdensome. The more methods a trait has, the more boilerplate
+we need to write:
+
+```plaintext
+trait Thing:
+    alias FooYieldType: AnyType
+    fn foo(self) yields FooYieldType: ...
+
+    alias BarYieldType: AnyType
+    fn bar(self) yields BarYieldType: ...
+```
+
+This boilerplate can be alleviated with syntactic sugar, such as `yields?` or
+`yields _`:
+
+```plaintext
+trait Thing:
+    fn foo(self) yields?: ...
+    fn bar(self) yields?: ...
+```
+
+Functions that are generic over implementations of `Thing` could obtain the
+right yield type as follows:
+
+```plaintext
+fn invoke_foo[T: Thing](arg: T) yields T.foo.YieldType:
+    arg.foo()
+```
+
+To shorten this signature, perhaps `yields?` should be allowed here too:
+
+```plaintext
+fn invoke_foo_and_bar[T: Thing](arg: T) yields?:
+    arg.foo()
+    arg.bar()
+```
+
+This could potentially mean "yields whatever the trait methods yield".
+
+There are likely some other syntax options worth considering. The takeaway is:
+- Ideally it should be easy to declare that a trait accepts implementations that
+  yield anything, including nothing, i.e. `Never`.
+- To achieve this, we will need some sugar.
+
 ## Summary
 
 I have proposed that we replace `async` with a `yields T` syntax, that allows us
