@@ -539,15 +539,17 @@ a good idea:
   sake of performance. If we were to use the same `async`/`await` syntax as
   Python, programmers might make incorrect assumptions about how Mojo coroutines
   work, and how to use them effectively. Changing the syntax makes clear that
-  the semantics are different.
+  the semantics are different. **The distinction between `async` and `yields` is
+  analogous to the distinction between `def` and `fn`.** The former is classic
+  Python, while the latter is idiomatic Mojo.
 - Last I heard, Mojo aims to support all of Python's existing features. This
   implies that `async def f()` should declare a _Python_ coroutine, not a Mojo
   coroutine. In particular, it implies that `f()` return an instance of Python's
   `coroutine` class. If it were to return anything else—e.g. a Mojo `Coroutine`
   struct—then it would be much more difficult to port Python code to Mojo, given
   that Mojo coroutines will have differences from Python coroutines. In short:
-  it seems sensible to reserve the `async def` syntax, and therefore `async fn`,
-  for Python coroutines. By happenstance, my proposal does this.
+  it seems sensible to reserve the `async def` syntax (and `async fn`)
+  for Python-style coroutines. By happenstance, my proposal does this.
 
 Taking a few steps back: Mojo aims to be the best language for writing
 high-performance applications, especially AI applications. It will still be
@@ -555,9 +557,8 @@ around in 20 years, and if it succeeds in its goals, the next generation of
 programmers will be taught Mojo early on in their education. This suggests that
 there is value in implementing the best possible design for coroutines, rather
 than focusing on syntactic similarly with existing languages. Given this, I
-think it's worth making a clean break from the cliché async/await syntax, and
-doing what's best for Mojo. Hopefully I've justified why these changes are
-necessary to make Mojo as great as it can be.
+think it's worth diverging from async/await syntax if another syntax (such as
+`yields`) works better for Mojo.
 
 ## Appendix B: Prior art
 
@@ -585,4 +586,6 @@ and it was removed from Zig years ago. I am told it had multiple unresolved
 flaws. The designers of Zig plan to re-implement a similar design in a future
 version of Zig, but nothing has been finalized yet. Therefore, it doesn't seem
 appropriate for me to compare Zig's design(s) to the design presented in this
-proposal.
+proposal. (**UPDATE July 2025:** Apparently a new design for async IO is being
+worked on. It's nowhere close to being finished, so there's nothing to evaluate
+yet.)
